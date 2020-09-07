@@ -96,6 +96,19 @@ export interface UploadConfig {
   configPath?: string;
 
   /**
+   * If this is specified, it will override the configPath option and config-store
+   * will not be used. This is for when you require the config file be stored elsewhere
+   * and not on the local file system. Particularly useful for projects running on
+   * App Engine, as all app engine instances use read-only filesystems.
+   *
+   * @param {Object} configManagement Object storing a get, set and delete method
+   * @param {Function} configManagement.get The get method for the config file
+   * @param {Function} configManagement.set The set method for the config file
+   * @param {Function} configManagement.delete The delete method for the config file
+   */
+  configManagement?: {get: Function, set: Function, delete: Function};
+
+  /**
    * For each API request we send, you may specify custom request options that
    * we'll add onto the request. The request options follow the gaxios API:
    * https://github.com/googleapis/gaxios#request-options.
@@ -197,6 +210,7 @@ export class Upload extends Pumpify {
   baseURI: string;
   authConfig?: {scopes?: string[]};
   authClient: GoogleAuth;
+  configManagement: {get: Function, set: Function, delete: Function};
   cacheKey: string;
   customRequestOptions: GaxiosOptions;
   generation?: number;
@@ -276,10 +290,14 @@ export class Upload extends Pumpify {
     if (cfg.private) this.predefinedAcl = 'private';
     if (cfg.public) this.predefinedAcl = 'publicRead';
 
-    const configPath = cfg.configPath;
-    this.configStore = new ConfigStore('gcs-resumable-upload', null, {
-      configPath,
-    });
+    if (!cfg.configManagement) {
+      const configPath = cfg.configPath;
+      this.configStore = new ConfigStore('gcs-resumable-upload', null, {
+        configPath,
+      });
+    } else {
+      this.configManagement = cfg.configManagement;
+    }
 
     this.uriProvidedManually = !!cfg.uri;
     this.uri = cfg.uri || this.get('uri');
@@ -610,17 +628,17 @@ export class Upload extends Pumpify {
   }
 
   private get(prop: string) {
-    const store = this.configStore.get(this.cacheKey);
+    const store = this.configManagement ? this.configManagement.get(this.cacheKey) : this.configStore.get(this.cacheKey);
     return store && store[prop];
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private set(props: any) {
-    this.configStore.set(this.cacheKey, props);
+    this.configManagement ? this.configManagement.set(this.cacheKey, props) : this.configStore.set(this.cacheKey, props);
   }
 
   deleteConfig() {
-    this.configStore.delete(this.cacheKey);
+    this.configManagement ? this.configManagement.delete(this.cacheKey) : this.configStore.delete(this.cacheKey);
   }
 
   /**
